@@ -57,6 +57,7 @@ const SIGNED_OUT_ALLOWED_ROUTES = new Set([
 let hasSelectedProfileThisSession = false;
 let appShellRendered = false;
 let updateCheckStarted = false;
+let pendingWebOsExternalLaunch = null;
 
 const APP_VERSION = typeof __NUVIO_APP_VERSION__ !== "undefined" ? __NUVIO_APP_VERSION__ : "0.0.0";
 const UPDATE_DISMISSED_TAG_KEY = "app_update_dismissed_tag";
@@ -208,6 +209,156 @@ function isAddonRemoteMode() {
   }
 }
 
+function normalizeWebOsLaunchParams(value) {
+  if (!value) return null;
+  if (typeof value === "object") return { ...value };
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (_) {}
+
+  try {
+    const query = raw.startsWith("?") ? raw.slice(1) : raw;
+    const params = new URLSearchParams(query);
+    const result = {};
+    params.forEach((entryValue, key) => {
+      result[key] = entryValue;
+    });
+    return Object.keys(result).length ? result : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function readWebOsLaunchParams(eventDetail = null) {
+  const direct = normalizeWebOsLaunchParams(eventDetail);
+  if (direct && Object.keys(direct).length) return direct;
+
+  try {
+    const fromDev = globalThis.webOSDev?.launchParams?.();
+    const parsed = normalizeWebOsLaunchParams(fromDev);
+    if (parsed && Object.keys(parsed).length) return parsed;
+  } catch (_) {}
+
+  for (const system of [globalThis.webOSSystem, globalThis.PalmSystem]) {
+    if (!system) continue;
+    try {
+      const raw =
+        typeof system.launchParams === "function"
+          ? system.launchParams()
+          : system.launchParams;
+      const parsed = normalizeWebOsLaunchParams(raw);
+      if (parsed && Object.keys(parsed).length) return parsed;
+    } catch (_) {}
+  }
+  return null;
+}
+
+function captureWebOsExternalLaunch(value) {
+  const params = normalizeWebOsLaunchParams(value);
+  if (
+    !params ||
+    String(params.launchMode || "").toLowerCase() !== "player" ||
+    !String(params.streamUrl || "").trim()
+  ) {
+    return false;
+  }
+  pendingWebOsExternalLaunch = params;
+  return true;
+}
+
+function externalPlayerParams(params = {}) {
+  const streamUrl = String(params.streamUrl || "").trim();
+  const streamTitle = String(
+    params.streamTitle || params.streamName || params.name || params.filename || "Nuvio"
+  ).trim();
+  const season = params.season == null || params.season === "" ? null : Number(params.season);
+  const episode = params.episode == null || params.episode === "" ? null : Number(params.episode);
+  const fileIdx = params.fileIdx == null || params.fileIdx === "" ? null : Number(params.fileIdx);
+  const videoSize =
+    params.videoSize == null || params.videoSize === "" ? null : Number(params.videoSize);
+  const sourceId = "external-ha";
+  const source = {
+    id: sourceId,
+    url: streamUrl,
+    title: streamTitle,
+    name: String(params.streamName || streamTitle),
+    description: String(params.streamDescription || ""),
+    addonName: String(params.addonName || "Home Assistant"),
+    addonLogo: String(params.addonLogo || ""),
+    filename: String(params.filename || ""),
+    infoHash: String(params.infoHash || ""),
+    fileIdx: Number.isFinite(fileIdx) ? fileIdx : null,
+    videoSize: Number.isFinite(videoSize) ? videoSize : null
+  };
+
+  return {
+    streamUrl,
+    itemId: params.contentId || null,
+    itemType: params.contentType || "movie",
+    videoId: params.videoId || params.contentId || null,
+    season: Number.isFinite(season) ? season : null,
+    episode: Number.isFinite(episode) ? episode : null,
+    episodeLabel:
+      Number.isFinite(season) && Number.isFinite(episode) ? `S${season}E${episode}` : null,
+    playerTitle: params.name || streamTitle,
+    playerSubtitle: params.episodeTitle || "",
+    playerEpisodeTitle: params.episodeTitle || "",
+    playerReleaseYear: params.year || "",
+    playerPosterUrl: params.poster || null,
+    playerBackdropUrl: params.backdrop || null,
+    playerLogoUrl: params.logo || null,
+    contentLanguage: params.contentLanguage || null,
+    startFromBeginning:
+      params.startFromBeginning === true || String(params.startFromBeginning).toLowerCase() === "true",
+    streamCandidates: [source],
+    preferredStreamId: sourceId,
+    playbackSourceContext: {
+      addonName: source.addonName,
+      addonLogo: source.addonLogo,
+      selectedStreamId: sourceId
+    },
+    returnToStreamOnBack: false,
+    fromDetailRoute: false
+  };
+}
+
+function externalLaunchBlockedByRoute(route) {
+  return [
+    "",
+    "profileSelection",
+    "authQrSignIn",
+    "authSignIn",
+    "serverConnection",
+    "syncCode",
+    "experienceModeSelection",
+    "essentialAddonSetup"
+  ].includes(String(route || ""));
+}
+
+async function consumePendingWebOsExternalLaunch() {
+  if (!Platform.isWebOS() || !pendingWebOsExternalLaunch) return false;
+  const current = Router.getCurrent();
+  if (externalLaunchBlockedByRoute(current)) return false;
+
+  const params = pendingWebOsExternalLaunch;
+  pendingWebOsExternalLaunch = null;
+  try {
+    await Router.navigate("player", externalPlayerParams(params), {
+      replaceHistory: true,
+      skipStackPush: true
+    });
+    return true;
+  } catch (error) {
+    pendingWebOsExternalLaunch = params;
+    console.warn("Failed to open external Nuvio player launch", error);
+    return false;
+  }
+}
+
 async function shouldShowProfileSelection() {
   const [, pinStates] = await Promise.all([
     ProfileSyncService.pull(),
@@ -286,6 +437,8 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
   }).catch((error) => {
     console.warn("Profile background sync failed", error);
   });
+
+  await consumePendingWebOsExternalLaunch();
 }
 
 async function routeAfterAuthentication() {
@@ -340,7 +493,7 @@ function setupWebOsAppLifecycle() {
           }
         }
         if (recoverOnCall) {
-          void recover(`${systemName}.${callbackName}`);
+          void recover(readWebOsLaunchParams());
         }
       };
     } catch (error) {
@@ -351,7 +504,8 @@ function setupWebOsAppLifecycle() {
   // webOS keeps the app resident when it is backgrounded. Re-opening can fire
   // a launch event on the existing JS context instead of reloading the page.
   let recovering = false;
-  const recover = async () => {
+  const recover = async (eventDetail = null) => {
+    captureWebOsExternalLaunch(eventDetail || readWebOsLaunchParams());
     if (recovering || !appShellRendered) {
       return;
     }
@@ -367,6 +521,19 @@ function setupWebOsAppLifecycle() {
       if (document.body) {
         document.body.style.removeProperty("display");
       }
+
+      if (pendingWebOsExternalLaunch) {
+        if (await consumePendingWebOsExternalLaunch()) {
+          activateWebOsApp();
+          return;
+        }
+        // Preserve the profile/PIN/auth screen until the user has finished it.
+        if (externalLaunchBlockedByRoute(current)) {
+          activateWebOsApp();
+          return;
+        }
+      }
+
       const shouldReturnHome = !Router.isWebOsResumeRouteRestorable(current);
       if (shouldReturnHome) {
         await Router.navigate(
@@ -390,10 +557,13 @@ function setupWebOsAppLifecycle() {
     }
   };
 
+  // Capture a cold-start launch that may have arrived before listeners were installed.
+  captureWebOsExternalLaunch(readWebOsLaunchParams());
+
   document.addEventListener(
     "webOSRelaunch",
-    () => {
-      void recover();
+    (event) => {
+      void recover(event?.detail || null);
     },
     true
   );
@@ -401,11 +571,17 @@ function setupWebOsAppLifecycle() {
   // webOS 4.x may fire webOSLaunch instead of webOSRelaunch when resuming.
   document.addEventListener(
     "webOSLaunch",
-    () => {
-      void recover();
+    (event) => {
+      void recover(event?.detail || null);
     },
     true
   );
+
+  // If a profile/PIN picker was required, consume the queued launch immediately
+  // after the user successfully activates a profile.
+  document.addEventListener("nuvio:profileActivated", () => {
+    void consumePendingWebOsExternalLaunch();
+  });
 
   // Some builds only expose visibilitychange when the WebView is resumed.
   document.addEventListener("visibilitychange", () => {
@@ -636,6 +812,7 @@ async function bootstrapApp() {
 
   markBootStage("Checking authentication");
   await AuthManager.bootstrap();
+  await consumePendingWebOsExternalLaunch();
 }
 
 async function bootstrapAddonRemoteMode() {
