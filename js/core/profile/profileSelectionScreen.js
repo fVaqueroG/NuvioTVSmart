@@ -2478,6 +2478,15 @@ export const ProfileSelectionScreen = {
         experienceRoute === "home" ? { forceReload: true } : {},
         experienceRoute === "home" ? {} : { replaceHistory: true, skipStackPush: true }
       );
+
+      // Let the app-level webOS launch handler resume any queued external
+      // player request after a profile/PIN has been successfully selected.
+      try {
+        const event = document.createEvent("Event");
+        event.initEvent("nuvio:profileActivated", true, false);
+        document.dispatchEvent(event);
+      } catch (_) {}
+
       void StartupSyncService.requestSyncNow({
         notifyPullCompleted: ["home", "plugins"].includes(experienceRoute)
       }).catch((error) => {
