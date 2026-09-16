@@ -1,0 +1,71 @@
+name: HA Direct Play webOS Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "js/app.js"
+      - "js/core/profile/profileSelectionScreen.js"
+      - ".github/workflows/ha-direct-play-webos-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-direct-play-webos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build HA-compatible webOS IPK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Configure public Nuvio backend
+        shell: bash
+        run: |
+          cat > local.properties <<'EOF'
+          NUVIO_SUPABASE_URL=https://api.nuvio.tv
+          NUVIO_SUPABASE_FALLBACK_URL=
+          TV_LOGIN_WEB_BASE_URL=https://nuvio.tv/tv-login
+          DEVICE_LOGIN_WEB_BASE_URL=https://nuvio.tv/link
+          INTRODB_API_URL=https://api.introdb.app/
+          SUPPORTERS_API_BASE_URL=https://nuvio.tv/
+          SUPPORT_URL=https://nuvio.tv/support
+          SIMKL_APP_NAME=nuvio
+          EOF
+          python3 - <<'PY' >> local.properties
+          import re
+          import urllib.request
+
+          url = "https://raw.githubusercontent.com/fVaqueroG/home-assistant-nuvio/main/custom_components/nuvio/const.py"
+          source = urllib.request.urlopen(url, timeout=20).read().decode()
+          match = re.search(r"NUVIO_API_KEY:.*?=\s*\((.*?)\n\)", source, re.S)
+          if not match:
+              raise SystemExit("Could not read Nuvio public API key")
+          parts = re.findall(r'"([^"]*)"', match.group(1))
+          print("NUVIO_SUPABASE_ANON_KEY=" + "".join(parts))
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build webOS package
+        run: npm run package:webos
+
+      - name: Upload IPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvio-ha-direct-play-webos
+          path: space.nuvio.webos_*_all.ipk
+          if-no-files-found: error
+          retention-days: 14
