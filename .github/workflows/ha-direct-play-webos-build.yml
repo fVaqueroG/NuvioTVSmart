@@ -6,6 +6,7 @@ on:
     paths:
       - "js/app.js"
       - "js/core/profile/profileSelectionScreen.js"
+      - "js/core/player/engines/nativeVideoEngine.js"
       - ".github/workflows/ha-direct-play-webos-build.yml"
   workflow_dispatch:
 
