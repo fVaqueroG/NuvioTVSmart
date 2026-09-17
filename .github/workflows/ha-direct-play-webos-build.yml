@@ -3,15 +3,10 @@ name: HA Direct Play webOS Build
 on:
   push:
     branches: [main]
-    paths:
-      - "js/app.js"
-      - "js/core/profile/profileSelectionScreen.js"
-      - "js/core/player/engines/nativeVideoEngine.js"
-      - ".github/workflows/ha-direct-play-webos-build.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ha-direct-play-webos-${{ github.ref }}
@@ -19,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build HA-compatible webOS IPK
+    name: Build and publish HA-compatible webOS IPK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -60,13 +55,79 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create monotonic Homebrew build version
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const parts = String(pkg.version || '0.0.0').split('.').map(Number);
+          if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n) || n < 0)) {
+            throw new Error(`Invalid upstream webOS version: ${pkg.version}`);
+          }
+          const [major, minor, patch] = parts;
+          const run = Number(process.env.GITHUB_RUN_NUMBER || 0);
+          const revision = patch * 100000 + run;
+          if (revision > 999999999) throw new Error('Generated webOS revision is too large');
+          const version = `${major}.${minor}.${revision}`;
+          pkg.version = version;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_ENV, `HB_VERSION=${version}\n`);
+          console.log(`Homebrew build version: ${version}`);
+          NODE
+
       - name: Build webOS package
         run: npm run package:webos
 
-      - name: Upload IPK
+      - name: Create Homebrew manifest
+        shell: bash
+        run: |
+          IPK="space.nuvio.webos_${HB_VERSION}_all.ipk"
+          test -f "$IPK"
+          SHA256="$(sha256sum "$IPK" | awk '{print $1}')"
+          TAG="ha-webos-${HB_VERSION}"
+          IPK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${IPK}"
+          cat > space.nuvio.webos.manifest.json <<EOF
+          {
+            "id": "space.nuvio.webos",
+            "version": "${HB_VERSION}",
+            "type": "web",
+            "title": "Nuvio TV (HA Direct Play)",
+            "appDescription": "Nuvio TV with Home Assistant direct playback support.",
+            "iconUri": "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/assets/images/largeIcon.png",
+            "sourceUrl": "https://github.com/${GITHUB_REPOSITORY}",
+            "rootRequired": false,
+            "ipkUrl": "${IPK_URL}",
+            "ipkHash": {
+              "sha256": "${SHA256}"
+            }
+          }
+          EOF
+          echo "HB_TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "HB_IPK=${IPK}" >> "$GITHUB_ENV"
+
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
           name: nuvio-ha-direct-play-webos
-          path: space.nuvio.webos_*_all.ipk
+          path: |
+            ${{ env.HB_IPK }}
+            space.nuvio.webos.manifest.json
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish Homebrew release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$HB_TAG" >/dev/null 2>&1; then
+            gh release upload "$HB_TAG" "$HB_IPK" space.nuvio.webos.manifest.json --clobber
+          else
+            gh release create "$HB_TAG" \
+              "$HB_IPK" \
+              space.nuvio.webos.manifest.json \
+              --title "Nuvio TV HA webOS ${HB_VERSION}" \
+              --notes "HA-compatible Nuvio TV webOS build. Tracks NuvioMedia/NuvioTVSmart while preserving Home Assistant direct-play support." \
+              --latest
+          fi
