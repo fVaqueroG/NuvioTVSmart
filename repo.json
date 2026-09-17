@@ -1,0 +1,16 @@
+{
+  "paging": {
+    "page": 1,
+    "count": 1,
+    "maxPage": 1,
+    "itemsTotal": 1
+  },
+  "packages": [
+    {
+      "id": "space.nuvio.webos",
+      "title": "Nuvio TV (HA Direct Play)",
+      "iconUri": "https://raw.githubusercontent.com/fVaqueroG/NuvioTVSmart/main/assets/images/largeIcon.png",
+      "manifestUrl": "https://github.com/fVaqueroG/NuvioTVSmart/releases/latest/download/space.nuvio.webos.manifest.json"
+    }
+  ]
+}
