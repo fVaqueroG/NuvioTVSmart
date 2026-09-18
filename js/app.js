@@ -280,6 +280,25 @@ function externalPlayerParams(params = {}) {
   const fileIdx = params.fileIdx == null || params.fileIdx === "" ? null : Number(params.fileIdx);
   const videoSize =
     params.videoSize == null || params.videoSize === "" ? null : Number(params.videoSize);
+  const filename = String(params.filename || "").trim();
+  const mimeType = String(params.mimeType || params.sourceType || "").trim();
+  let requestHeaders = {};
+  if (params.requestHeaders && typeof params.requestHeaders === "object") {
+    requestHeaders = { ...params.requestHeaders };
+  } else if (params.requestHeadersJson) {
+    try {
+      const parsedHeaders = JSON.parse(String(params.requestHeadersJson || "{}"));
+      if (parsedHeaders && typeof parsedHeaders === "object" && !Array.isArray(parsedHeaders)) {
+        requestHeaders = parsedHeaders;
+      }
+    } catch (_) {}
+  }
+  const behaviorHints = {};
+  if (filename) behaviorHints.filename = filename;
+  if (Number.isFinite(videoSize) && videoSize > 0) behaviorHints.videoSize = videoSize;
+  if (Object.keys(requestHeaders).length) {
+    behaviorHints.proxyHeaders = { request: requestHeaders };
+  }
   const sourceId = "external-ha";
   const source = {
     id: sourceId,
@@ -289,7 +308,10 @@ function externalPlayerParams(params = {}) {
     description: String(params.streamDescription || ""),
     addonName: String(params.addonName || "Home Assistant"),
     addonLogo: String(params.addonLogo || ""),
-    filename: String(params.filename || ""),
+    filename,
+    mimeType: mimeType || null,
+    sourceType: mimeType || "",
+    behaviorHints,
     infoHash: String(params.infoHash || ""),
     fileIdx: Number.isFinite(fileIdx) ? fileIdx : null,
     videoSize: Number.isFinite(videoSize) ? videoSize : null
