@@ -5642,7 +5642,13 @@ export const PlayerController = {
         const debugPayload = {
           baseUrl: proxyResult.baseUrl,
           headerNames: proxyResult.headerNames,
-          playbackUrl
+          playbackUrl,
+          upstreamUrl: proxyResult.upstreamUrl || requestedUrl,
+          resolvedContentType: proxyResult.resolvedContentType || null,
+          resolvedStatusCode: proxyResult.resolvedStatusCode || null,
+          redirectCount: Array.isArray(proxyResult.redirectChain)
+            ? Math.max(0, proxyResult.redirectChain.length - 1)
+            : 0
         };
         if (Platform.isTizen()) {
           logTizenAvPlayDebug("PlayerController: Tizen playback proxy selected", debugPayload);
