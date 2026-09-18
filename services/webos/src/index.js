@@ -7,6 +7,7 @@ var bootLocalRuntime = serverHost.bootLocalRuntime;
 var probeLocalServer = serverHost.probeLocalServer;
 var requestLocalHttp = serverHost.requestLocalHttp;
 var SUPABASE_PROXY_PATH = require("./supabaseProxy").SUPABASE_PROXY_PATH;
+var resolveRemoteMediaUrl = require("./mediaResolver").resolveRemoteMediaUrl;
 var bitmapSubtitles = require("./bitmapSubtitles");
 var getBitmapSubtitleWindow = bitmapSubtitles.getBitmapSubtitleWindow;
 var getEmbeddedTextSubtitleWindow = bitmapSubtitles.getEmbeddedTextSubtitleWindow;
@@ -1463,6 +1464,53 @@ async function runEngineFsDiagnostic(payload) {
   return finalizeDiagnosticReport(report);
 }
 
+function registerMediaResolveCommand() {
+  service.register("mediaResolve", function (message) {
+    var payload = getMessagePayload(message);
+    var sourceUrl = String(payload.url || "").trim();
+    var headers =
+      payload.headers && typeof payload.headers === "object" && !Array.isArray(payload.headers)
+        ? payload.headers
+        : {};
+
+    resolveRemoteMediaUrl(sourceUrl, headers, function (error, result) {
+      if (error) {
+        respond(
+          message,
+          buildErrorPayload(error, {
+            mediaResolve: true,
+            originalUrl: sourceUrl
+          })
+        );
+        return;
+      }
+      var statusCode = Number((result && result.statusCode) || 0);
+      if (statusCode < 200 || statusCode >= 300) {
+        respond(
+          message,
+          buildErrorPayload("Media URL probe returned HTTP " + statusCode, {
+            mediaResolve: true,
+            originalUrl: sourceUrl,
+            resolvedUrl: result && result.url,
+            statusCode: statusCode,
+            contentType: result && result.contentType,
+            redirectChain: (result && result.redirectChain) || []
+          })
+        );
+        return;
+      }
+      respond(
+        message,
+        Object.assign(buildBasePayload(), result || {}, {
+          returnValue: true,
+          mediaResolve: true,
+          originalUrl: sourceUrl
+        })
+      );
+    });
+  });
+}
+
 function registerEngineFsDiagnosticCommand() {
   service.register("enginefsDiagnostic", function (message) {
     var payload = getMessagePayload(message);
@@ -1495,6 +1543,7 @@ registerSafeHttpProxyCommand("supabaseProxy");
 registerSafeHttpProxyCommand("safeHttpProxy");
 registerEngineFsKeepAliveCommands();
 registerMediaPlaybackKeepAliveCommands();
+registerMediaResolveCommand();
 registerTracksCommand();
 registerSubtitleTextCommand();
 registerBitmapSubtitleCommand();

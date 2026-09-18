@@ -8,6 +8,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding"
 ]);
 const WEBOS_PLAYBACK_PROXY_TIMEOUT_MS = 5000;
+const WEBOS_MEDIA_RESOLVE_TIMEOUT_MS = 32000;
 
 function normalizeHeaderEntries(headers = {}) {
   if (!headers || typeof headers !== "object") {
@@ -123,7 +124,51 @@ export const WebOsPlaybackProxy = {
       };
     }
 
-    const proxyUrl = buildWebOsPlaybackProxyUrl(baseUrl, originalUrl, headers);
+    const headerEntries = normalizeHeaderEntries(headers);
+    let upstreamUrl = originalUrl;
+    let resolvedContentType = "";
+    let resolvedStatusCode = 0;
+    let redirectChain = [];
+
+    // AIOStreams-style /playback endpoints are GET-only redirect resolvers.
+    // LG's native media pipeline can reject a localhost proxy that still points
+    // at that resolver (notably when HEAD is rejected or the redirect target is
+    // an opaque MKV CDN URL). Resolve only forced progressive sources that do
+    // not depend on custom request headers; header-dependent streams keep the
+    // existing proxy path untouched.
+    if (force && !headerEntries.length) {
+      try {
+        const resolved = await withTimeout(
+          requestWebOsCompanionService({
+            method: "mediaResolve",
+            parameters: { url: originalUrl, headers: {} },
+            timeoutMs: WEBOS_MEDIA_RESOLVE_TIMEOUT_MS,
+            retryOnFailure: false
+          }),
+          WEBOS_MEDIA_RESOLVE_TIMEOUT_MS + 1000,
+          "webOS media URL resolution timed out"
+        );
+        const resolvedPayload = resolved?.payload || {};
+        const candidate = String(resolvedPayload.url || "").trim();
+        if (
+          resolvedPayload.returnValue !== false &&
+          candidate &&
+          parseHttpUrl(candidate) &&
+          !isLocalProxyUrl(candidate)
+        ) {
+          upstreamUrl = candidate;
+          resolvedContentType = String(resolvedPayload.contentType || "").trim();
+          resolvedStatusCode = Number(resolvedPayload.statusCode || 0);
+          redirectChain = Array.isArray(resolvedPayload.redirectChain)
+            ? resolvedPayload.redirectChain
+            : [];
+        }
+      } catch (_) {
+        // Fail open: the existing playback proxy remains the fallback.
+      }
+    }
+
+    const proxyUrl = buildWebOsPlaybackProxyUrl(baseUrl, upstreamUrl, headers);
     if (!proxyUrl) {
       return {
         status: "unavailable",
@@ -138,7 +183,12 @@ export const WebOsPlaybackProxy = {
       url: proxyUrl,
       proxied: true,
       baseUrl,
-      headerNames: normalizeHeaderEntries(headers).map(([key]) => key)
+      originalUrl,
+      upstreamUrl,
+      resolvedContentType,
+      resolvedStatusCode,
+      redirectChain,
+      headerNames: headerEntries.map(([key]) => key)
     };
   }
 };
