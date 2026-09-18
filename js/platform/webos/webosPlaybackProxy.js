@@ -63,7 +63,7 @@ export function buildWebOsPlaybackProxyUrl(baseUrl, sourceUrl, headers = {}) {
   const base = parseHttpUrl(baseUrl);
   const source = parseHttpUrl(sourceUrl);
   const entries = normalizeHeaderEntries(headers);
-  if (!base || !source || !entries.length) {
+  if (!base || !source) {
     return "";
   }
 
@@ -82,15 +82,17 @@ export function buildWebOsPlaybackProxyUrl(baseUrl, sourceUrl, headers = {}) {
 }
 
 export const WebOsPlaybackProxy = {
-  requiresProxy(sourceUrl = "", headers = {}) {
+  requiresProxy(sourceUrl = "", headers = {}, { force = false } = {}) {
     return Boolean(
-      parseHttpUrl(sourceUrl) && !isLocalProxyUrl(sourceUrl) && hasWebOsPlaybackHeaders(headers)
+      parseHttpUrl(sourceUrl) &&
+        !isLocalProxyUrl(sourceUrl) &&
+        (force || hasWebOsPlaybackHeaders(headers))
     );
   },
 
-  async resolve(sourceUrl = "", headers = {}) {
+  async resolve(sourceUrl = "", headers = {}, { force = false } = {}) {
     const originalUrl = String(sourceUrl || "").trim();
-    if (!this.requiresProxy(originalUrl, headers)) {
+    if (!this.requiresProxy(originalUrl, headers, { force })) {
       return { status: "not-required", url: originalUrl, proxied: false };
     }
 
