@@ -132,6 +132,7 @@ function resolveRemoteMediaUrl(rawUrl, headers, callback, redirectsLeft, chain) 
           return;
         }
         var nextHeaders = headersForRedirect(headers || {}, parsed, nextUrl);
+        settled = true;
         resolveRemoteMediaUrl(
           nextUrl.toString(),
           nextHeaders,
