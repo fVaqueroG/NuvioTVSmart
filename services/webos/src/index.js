@@ -1484,6 +1484,21 @@ function registerMediaResolveCommand() {
         );
         return;
       }
+      var statusCode = Number((result && result.statusCode) || 0);
+      if (statusCode < 200 || statusCode >= 300) {
+        respond(
+          message,
+          buildErrorPayload("Media URL probe returned HTTP " + statusCode, {
+            mediaResolve: true,
+            originalUrl: sourceUrl,
+            resolvedUrl: result && result.url,
+            statusCode: statusCode,
+            contentType: result && result.contentType,
+            redirectChain: (result && result.redirectChain) || []
+          })
+        );
+        return;
+      }
       respond(
         message,
         Object.assign(buildBasePayload(), result || {}, {
