@@ -5623,7 +5623,15 @@ export const PlayerController = {
           ? WebOsPlaybackProxy
           : null;
     if (playbackProxy) {
-      const proxyResult = await playbackProxy.resolve(requestedUrl, requestHeaders);
+      const forceWebOsProgressiveProxy =
+        Platform.isWebOS() &&
+        this.isRemoteDirectHttpSource(requestedUrl) &&
+        !this.isLikelyHlsMimeType(sourceType) &&
+        !this.isLikelyDashMimeType(sourceType) &&
+        !this.isLikelySmoothStreamingMimeType(sourceType);
+      const proxyResult = await playbackProxy.resolve(requestedUrl, requestHeaders, {
+        force: forceWebOsProgressiveProxy
+      });
       if (!this.isPlaybackRequestActive(playToken, requestedUrl)) {
         return;
       }
