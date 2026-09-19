@@ -1,3 +1,30 @@
+## 1.1.6
+
+### Improvements & Fixes
+
+- Reconciled Tizen AVPlay audio metadata with container codec order so supported tracks retain their source language labels, matching Android TV behavior (@WhiteGiso)
+
+## 1.1.5
+
+### Improvements & Fixes
+
+- Preserved the live playback resume position when returning from the player to an existing Streams screen, aligning browser history navigation with Android TV and preventing stale route parameters from reopening a stream at an older position (@WhiteGiso)
+
+## 1.1.4
+
+### Improvements & Fixes
+
+- Aligned Tizen embedded audio metadata with AVPlay stream indices so audio track labels and selections remain consistent with Android TV ordering (@WhiteGiso)
+
+## 1.1.3
+
+### Improvements & Fixes
+
+- Hardened stream and subtitle header isolation across hosts, redirects, and HTTPS downgrades while preserving provider request contracts (@WhiteGiso)
+- Added Android-aligned movie credits, post-credits skip intervals, precise seeking, settings, and post-play integration (@WhiteGiso)
+- Aligned binge-group defaults, TMDB collection ordering, Simkl TVDB preferences, RTL text detection, subtitle language aliases, and Continue Watching theming (@WhiteGiso)
+- Added certified Rotten Tomatoes and audience rating states to MDBList metadata and playback/detail surfaces (@WhiteGiso)
+
 ## 1.1.2
 
 ### Improvements & Fixes

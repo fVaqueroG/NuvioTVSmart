@@ -1868,7 +1868,7 @@ export const DiscoverScreen = {
     }
     const viewport = scroller.getBoundingClientRect();
     const margin = DISCOVER_POSTER_PREFETCH_MARGIN_PX;
-    this.container?.querySelectorAll(".discover-card-poster-image[data-src]").forEach((image) => {
+    this.container?.querySelectorAll(".seeall-card-poster-image[data-src]").forEach((image) => {
       if (!(image instanceof HTMLImageElement) || !image.isConnected) {
         return;
       }
